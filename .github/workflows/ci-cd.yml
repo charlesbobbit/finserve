@@ -133,6 +133,16 @@ jobs:
         done
         
         echo "VM available at: ssh azureuser@$VM_IP"
+    
+    - name: Cleanup on failure
+      if: failure()
+      run: |
+        echo "Pipeline failed, cleaning up resources..."
+        terraform init
+        terraform workspace select staging || true
+        terraform destroy -auto-approve \
+          -var-file="environments/staging/terraform.tfvars" \
+          -var="admin_public_key=${{ secrets.SSH_PUBLIC_KEY }}" || true
 
   report:
     name: Summary
