@@ -106,28 +106,22 @@ jobs:
         kubectl apply -f ../k8s/nginx-deployment.yaml
         kubectl rollout status deployment/nginx-hello --timeout=300s
         
-        for i in {1..30}; do
-          NGINX_IP=$(kubectl get service nginx-hello-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-          if [ ! -z "$NGINX_IP" ] && [ "$NGINX_IP" != "null" ]; then
-            echo "nginx_ip=$NGINX_IP" >> $GITHUB_OUTPUT
-            break
-          fi
-          sleep 10
-        done
+        AKS_NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+        echo "nginx_ip=$AKS_NODE_IP:30080" >> $GITHUB_OUTPUT
     
     - name: Test deployment
       run: |
         VM_IP="${{ steps.outputs.outputs.vm_ip }}"
-        NGINX_IP="${{ steps.outputs.outputs.nginx_ip }}"
+        NGINX_URL="${{ steps.outputs.outputs.nginx_ip }}"
         
-        if [ -z "$NGINX_IP" ]; then
-          echo "Failed to get nginx IP"
+        if [ -z "$NGINX_URL" ]; then
+          echo "Failed to get nginx URL"
           exit 1
         fi
         
-        echo "Testing nginx at $NGINX_IP"
+        echo "Testing nginx at $NGINX_URL"
         for i in {1..5}; do
-          if curl -f -s http://$NGINX_IP >/dev/null; then
+          if curl -f -s http://$NGINX_URL >/dev/null; then
             echo "Nginx is responding"
             break
           fi
