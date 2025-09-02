@@ -106,31 +106,31 @@ jobs:
       run: |
         kubectl apply -f ../k8s/nginx-deployment.yaml
         kubectl rollout status deployment/nginx-hello --timeout=300s
-        
-        AKS_NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
-        echo "nginx_ip=$AKS_NODE_IP:30080" >> $GITHUB_OUTPUT
+        echo "nginx_ip=localhost:8080" >> $GITHUB_OUTPUT
     
     - name: Test deployment
       run: |
         VM_IP="${{ steps.outputs.outputs.vm_ip }}"
         NGINX_URL="${{ steps.nginx.outputs.nginx_ip }}"
         
-        if [ -z "$NGINX_URL" ]; then
-          echo "Failed to get nginx URL"
-          exit 1
-        fi
+        echo "Setting up port-forward to nginx service..."
+        kubectl port-forward service/nginx-hello-service 8080:80 &
+        FORWARD_PID=$!
+        sleep 5
         
         echo "Testing nginx at $NGINX_URL"
         for i in {1..5}; do
           if curl -f -s http://$NGINX_URL >/dev/null; then
             echo "Nginx is responding"
+            kill $FORWARD_PID
             break
           fi
           if [ $i -eq 5 ]; then
             echo "Nginx test failed"
+            kill $FORWARD_PID
             exit 1
           fi
-          sleep 10
+          sleep 5
         done
         
         echo "VM available at: ssh azureuser@$VM_IP"
