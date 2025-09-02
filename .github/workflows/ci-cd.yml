@@ -87,7 +87,7 @@ jobs:
     - name: Deploy infrastructure
       run: |
         terraform init
-        terraform workspace select staging
+        terraform workspace new staging || terraform workspace select staging
         terraform apply -auto-approve staging.tfplan
     
     - name: Get connection details
