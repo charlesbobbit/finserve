@@ -11,17 +11,24 @@ variable "location" {
 }
 
 variable "admin_public_key_path" {
-  description = "Path to SSH public key file"
+  description = "Path to SSH public key file (local development)"
   type        = string
-  default     = "~/.ssh/finserve_key.pub"
+  default     = ""
+}
+
+variable "admin_public_key" {
+  description = "SSH public key content (CI/CD pipelines)"
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 variable "common_tags" {
   description = "Common tags for all resources"
   type        = map(string)
   default = {
-    Project     = "FinServe-DevSecOps"
-    ManagedBy   = "Terraform"
+    Project   = "FinServe-DevSecOps"
+    ManagedBy = "Terraform"
   }
 }
 

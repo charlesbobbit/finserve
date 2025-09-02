@@ -1,0 +1,173 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ feat/github-actions ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  TF_VERSION: 1.5.0
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+jobs:
+  terraform-validate:
+    name: Validate Infrastructure
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+    
+    - name: Check format and validate
+      run: |
+        terraform fmt -check -recursive
+        terraform init
+        terraform validate
+    
+    - name: Plan deployment
+      run: |
+        terraform workspace new staging || terraform workspace select staging
+        terraform plan \
+          -var-file="environments/staging/terraform.tfvars" \
+          -var="admin_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+          -out=staging.tfplan
+    
+    - name: Save plan
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-artifacts
+        path: |
+          terraform/staging.tfplan
+          terraform/.terraform/
+          terraform/.terraform.lock.hcl
+
+  deploy-and-test:
+    name: Deploy and Test
+    needs: terraform-validate
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/feat/github-actions'
+    defaults:
+      run:
+        working-directory: terraform
+    outputs:
+      vm_ip: ${{ steps.outputs.outputs.vm_ip }}
+      nginx_ip: ${{ steps.nginx.outputs.nginx_ip }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup tools
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        terraform_wrapper: false
+    
+    - uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: Download plan
+      uses: actions/download-artifact@v4
+      with:
+        name: terraform-artifacts
+        path: terraform
+    
+    - name: Deploy infrastructure
+      run: |
+        terraform init
+        terraform workspace new staging || terraform workspace select staging
+        terraform apply -auto-approve staging.tfplan
+    
+    - name: Get connection details
+      id: outputs
+      run: |
+        echo "vm_ip=$(terraform output -raw vm_public_ip)" >> $GITHUB_OUTPUT
+        echo "aks_cluster=$(terraform output -raw aks_cluster_name)" >> $GITHUB_OUTPUT
+        echo "resource_group=$(terraform output -raw resource_group_name)" >> $GITHUB_OUTPUT
+        
+        mkdir -p $HOME/.kube
+        terraform output -raw aks_kubeconfig > $HOME/.kube/config
+        chmod 600 $HOME/.kube/config
+    
+    - name: Deploy nginx
+      id: nginx
+      run: |
+        kubectl apply -f ../k8s/nginx-deployment.yaml
+        kubectl rollout status deployment/nginx-hello --timeout=300s
+        echo "nginx_ip=localhost:8080" >> $GITHUB_OUTPUT
+    
+    - name: Test deployment
+      run: |
+        VM_IP="${{ steps.outputs.outputs.vm_ip }}"
+        NGINX_URL="${{ steps.nginx.outputs.nginx_ip }}"
+        
+        echo "Setting up port-forward to nginx service..."
+        kubectl port-forward service/nginx-hello-service 8080:80 &
+        FORWARD_PID=$!
+        sleep 5
+        
+        echo "Testing nginx at $NGINX_URL"
+        for i in {1..5}; do
+          if curl -f -s http://$NGINX_URL >/dev/null; then
+            echo "Nginx is responding"
+            kill $FORWARD_PID
+            break
+          fi
+          if [ $i -eq 5 ]; then
+            echo "Nginx test failed"
+            kill $FORWARD_PID
+            exit 1
+          fi
+          sleep 5
+        done
+        
+        echo "VM available at: ssh azureuser@$VM_IP"
+    
+    - name: Cleanup on failure
+      if: failure()
+      run: |
+        echo "Pipeline failed, cleaning up resources..."
+        terraform init
+        terraform workspace select staging || true
+        terraform destroy -auto-approve \
+          -var-file="environments/staging/terraform.tfvars" \
+          -var="admin_public_key=${{ secrets.SSH_PUBLIC_KEY }}" || true
+
+  report:
+    name: Summary
+    needs: deploy-and-test
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Create summary
+      run: |
+        echo "## Deployment Status" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        VM_IP="${{ needs.deploy-and-test.outputs.vm_ip }}"
+        NGINX_IP="${{ needs.deploy-and-test.outputs.nginx_ip }}"
+        
+        if [ ! -z "$VM_IP" ]; then
+          echo "**VM:** ssh azureuser@$VM_IP" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "**VM:** deployment failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ ! -z "$NGINX_IP" ]; then
+          echo "**Nginx:** http://$NGINX_IP" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "**Nginx:** deployment failed" >> $GITHUB_STEP_SUMMARY
+        fi 
