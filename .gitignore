@@ -1,0 +1,15 @@
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform/
+terraform.tfstate.d/
+.terraform.lock.hcl
+
+*.pem
+*.pub
+id_rsa*
+finserve_key*
+
+.env
+.env.local
+ 
