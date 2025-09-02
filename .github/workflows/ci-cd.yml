@@ -63,7 +63,7 @@ jobs:
         working-directory: terraform
     outputs:
       vm_ip: ${{ steps.outputs.outputs.vm_ip }}
-      nginx_ip: ${{ steps.outputs.outputs.nginx_ip }}
+      nginx_ip: ${{ steps.nginx.outputs.nginx_ip }}
     
     steps:
     - uses: actions/checkout@v4
@@ -102,6 +102,7 @@ jobs:
         chmod 600 $HOME/.kube/config
     
     - name: Deploy nginx
+      id: nginx
       run: |
         kubectl apply -f ../k8s/nginx-deployment.yaml
         kubectl rollout status deployment/nginx-hello --timeout=300s
@@ -112,7 +113,7 @@ jobs:
     - name: Test deployment
       run: |
         VM_IP="${{ steps.outputs.outputs.vm_ip }}"
-        NGINX_URL="${{ steps.outputs.outputs.nginx_ip }}"
+        NGINX_URL="${{ steps.nginx.outputs.nginx_ip }}"
         
         if [ -z "$NGINX_URL" ]; then
           echo "Failed to get nginx URL"
