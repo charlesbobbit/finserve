@@ -37,7 +37,7 @@ resource "azurerm_linux_virtual_machine" "main" {
 
   admin_ssh_key {
     username   = "azureuser"
-    public_key = file(var.admin_public_key_path)  # Read SSH public key from local file
+    public_key = var.admin_public_key != "" ? var.admin_public_key : file(var.admin_public_key_path)
   }
 
   os_disk {

@@ -54,5 +54,6 @@ module "vm" {
   subnet_id             = module.network.vm_subnet_id
   vm_size               = var.vm_size
   admin_public_key_path = var.admin_public_key_path
+  admin_public_key      = var.admin_public_key
   common_tags           = var.common_tags
 } 
