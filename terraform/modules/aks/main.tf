@@ -19,7 +19,7 @@ resource "azurerm_kubernetes_cluster" "main" {
 
   network_profile {
     network_plugin = "azure"
-    service_cidr   = "172.16.0.0/16"  # Different from VNet CIDR to avoid overlap
+    service_cidr   = "172.16.0.0/16" # Different from VNet CIDR to avoid overlap
     dns_service_ip = "172.16.0.10"
   }
 

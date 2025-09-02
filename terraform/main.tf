@@ -26,29 +26,29 @@ resource "azurerm_resource_group" "main" {
 
 module "network" {
   source = "./modules/network"
-  
+
   resource_group_name = azurerm_resource_group.main.name
-  location           = azurerm_resource_group.main.location
-  environment        = var.environment
-  common_tags        = var.common_tags
+  location            = azurerm_resource_group.main.location
+  environment         = var.environment
+  common_tags         = var.common_tags
 }
 
 module "aks" {
   source = "./modules/aks"
-  
+
   resource_group_name = azurerm_resource_group.main.name
-  location           = azurerm_resource_group.main.location
-  environment        = var.environment
-  subnet_id          = module.network.aks_subnet_id
-  node_count         = var.aks_node_count
-  node_size          = var.aks_node_size
-  common_tags        = var.common_tags
+  location            = azurerm_resource_group.main.location
+  environment         = var.environment
+  subnet_id           = module.network.aks_subnet_id
+  node_count          = var.aks_node_count
+  node_size           = var.aks_node_size
+  common_tags         = var.common_tags
 }
 
 module "vm" {
   source = "./modules/vm"
-  
-  resource_group_name    = azurerm_resource_group.main.name
+
+  resource_group_name   = azurerm_resource_group.main.name
   location              = azurerm_resource_group.main.location
   environment           = var.environment
   subnet_id             = module.network.vm_subnet_id

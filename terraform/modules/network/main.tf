@@ -33,7 +33,7 @@ resource "azurerm_network_security_group" "vm" {
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_range     = "22"
-    source_address_prefix      = "*"  # Note: Open to internet for demo purposes
+    source_address_prefix      = "*" # Note: Open to internet for demo purposes
     destination_address_prefix = "*"
   }
 
