@@ -19,6 +19,11 @@ output "vm_public_ip" {
   value       = module.vm.public_ip
 }
 
+output "vm_name" {
+  description = "Name of the Linux VM"
+  value       = module.vm.vm_name
+}
+
 output "vm_ssh_command" {
   description = "SSH command to connect to VM"
   value       = module.vm.ssh_command

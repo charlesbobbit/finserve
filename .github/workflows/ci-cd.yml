@@ -1,8 +1,6 @@
 name: CI/CD Pipeline
 
 on:
-  push:
-    branches: [ feat/github-actions ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -36,6 +34,26 @@ jobs:
         terraform init
         terraform validate
     
+    - name: Load mock Key Vault configuration
+      run: |
+        chmod +x ../scripts/read-vault-config.sh
+        source ../scripts/read-vault-config.sh
+        export_vault_config
+        echo "TRIVY_SEVERITY=$TRIVY_SEVERITY" >> $GITHUB_ENV
+        echo "CHECKOV_FRAMEWORKS=$CHECKOV_FRAMEWORKS" >> $GITHUB_ENV
+    
+    - name: Security scan - Terraform
+      run: |
+        pip install checkov
+        checkov -d . --framework ${{ env.CHECKOV_FRAMEWORKS }} --config-file .checkov.yml --output cli --output sarif --output-file-path checkov-results.sarif
+        
+    - name: Upload Checkov results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: checkov-results
+        path: terraform/checkov-results.sarif
+    
     - name: Plan deployment
       run: |
         terraform workspace new staging || terraform workspace select staging
@@ -53,17 +71,60 @@ jobs:
           terraform/.terraform/
           terraform/.terraform.lock.hcl
 
-  deploy-and-test:
-    name: Deploy and Test
+  security-scan:
+    name: Security Scan
     needs: terraform-validate
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/feat/github-actions'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Load security configuration from mock Key Vault
+      run: |
+        chmod +x scripts/read-vault-config.sh
+        source scripts/read-vault-config.sh
+        export_vault_config
+        echo "TRIVY_SEVERITY=$TRIVY_SEVERITY" >> $GITHUB_ENV
+    
+    - name: Run Trivy filesystem scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-fs-results.sarif'
+        severity: ${{ env.TRIVY_SEVERITY }}
+        
+    - name: Run Trivy image scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'nginx:latest'
+        format: 'sarif'
+        output: 'trivy-image-results.sarif'
+        severity: ${{ env.TRIVY_SEVERITY }}
+        
+    - name: Upload Trivy results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: trivy-results
+        path: |
+          trivy-fs-results.sarif
+          trivy-image-results.sarif
+
+  deploy-and-test:
+    name: Deploy and Test
+    needs: [terraform-validate, security-scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/feat/trivy' || (github.event_name == 'pull_request' && github.base_ref == 'main')
     defaults:
       run:
         working-directory: terraform
     outputs:
       vm_ip: ${{ steps.outputs.outputs.vm_ip }}
       nginx_ip: ${{ steps.nginx.outputs.nginx_ip }}
+      resource_group: ${{ steps.outputs.outputs.resource_group }}
+      vm_name: ${{ steps.outputs.outputs.vm_name }}
     
     steps:
     - uses: actions/checkout@v4
@@ -96,16 +157,24 @@ jobs:
         echo "vm_ip=$(terraform output -raw vm_public_ip)" >> $GITHUB_OUTPUT
         echo "aks_cluster=$(terraform output -raw aks_cluster_name)" >> $GITHUB_OUTPUT
         echo "resource_group=$(terraform output -raw resource_group_name)" >> $GITHUB_OUTPUT
+        echo "vm_name=$(terraform output -raw vm_name)" >> $GITHUB_OUTPUT
         
         mkdir -p $HOME/.kube
         terraform output -raw aks_kubeconfig > $HOME/.kube/config
         chmod 600 $HOME/.kube/config
     
+    - name: Load deployment configuration
+      run: |
+        chmod +x ../scripts/read-vault-config.sh
+        source ../scripts/read-vault-config.sh
+        export_vault_config
+        echo "KUBECTL_TIMEOUT=$KUBECTL_TIMEOUT" >> $GITHUB_ENV
+    
     - name: Deploy nginx
       id: nginx
       run: |
         kubectl apply -f ../k8s/nginx-deployment.yaml
-        kubectl rollout status deployment/nginx-hello --timeout=300s
+        kubectl rollout status deployment/nginx-hello --timeout=${{ env.KUBECTL_TIMEOUT }}
         echo "nginx_ip=localhost:8080" >> $GITHUB_OUTPUT
     
     - name: Test deployment
@@ -145,9 +214,39 @@ jobs:
           -var-file="environments/staging/terraform.tfvars" \
           -var="admin_public_key=${{ secrets.SSH_PUBLIC_KEY }}" || true
 
+  remediation:
+    name: Vulnerability Remediation
+    needs: [deploy-and-test, security-scan]
+    runs-on: ubuntu-latest
+    if: always() && needs.deploy-and-test.result == 'success'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download security scan results
+      uses: actions/download-artifact@v4
+      with:
+        name: trivy-results
+        path: security-results
+    
+    - name: Azure login
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Remediate VM via Azure Run Command
+      uses: azure/cli@v2
+      with:
+        inlineScript: |
+          az vm run-command invoke \
+            --resource-group "${{ needs.deploy-and-test.outputs.resource_group }}" \
+            --name "${{ needs.deploy-and-test.outputs.vm_name }}" \
+            --command-id RunShellScript \
+            --scripts "sudo apt update && sudo apt upgrade -y && sudo apt autoremove -y && sudo apt autoclean -y"
+
   report:
     name: Summary
-    needs: deploy-and-test
+    needs: [deploy-and-test, security-scan, remediation]
     runs-on: ubuntu-latest
     if: always()
     
@@ -170,4 +269,10 @@ jobs:
           echo "**Nginx:** http://$NGINX_IP" >> $GITHUB_STEP_SUMMARY
         else
           echo "**Nginx:** deployment failed" >> $GITHUB_STEP_SUMMARY
-        fi 
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "- Trivy container and filesystem scans completed" >> $GITHUB_STEP_SUMMARY
+        echo "- Checkov Terraform security analysis completed" >> $GITHUB_STEP_SUMMARY
+        echo "- Vulnerability remediation executed" >> $GITHUB_STEP_SUMMARY 

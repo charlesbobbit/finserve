@@ -1,0 +1,30 @@
+{
+  "vault_name": "finserve-keyvault-staging",
+  "vault_uri": "https://finserve-kv-staging.vault.azure.net/",
+  "secrets": {
+    "trivy-severity-levels": "HIGH,CRITICAL",
+    "trivy-timeout": "5m",
+    "checkov-frameworks": "terraform",
+    "scan-output-format": "sarif",
+    "vm-patch-timeout": "300",
+    "kubectl-rollout-timeout": "300s"
+  },
+  "configuration": {
+    "security_scanning": {
+      "enabled": true,
+      "fail_on_critical": true,
+      "upload_sarif": true
+    },
+    "remediation": {
+      "enabled": true,
+      "auto_patch_vm": true,
+      "cleanup_after_scan": true
+    }
+  },
+  "mock_credentials": {
+    "note": "In production, these would be actual Key Vault references",
+    "vm_admin_key": "reference:keyvault:vm-ssh-private-key",
+    "azure_service_principal": "reference:keyvault:azure-sp-credentials",
+    "monitoring_tokens": "reference:keyvault:prometheus-grafana-tokens"
+  }
+} 
