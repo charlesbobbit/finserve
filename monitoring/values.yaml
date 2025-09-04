@@ -1,0 +1,14 @@
+prometheus:
+  service:
+    type: ClusterIP
+  prometheusSpec:
+    retention: 6h
+    additionalScrapeConfigs:
+      - job_name: 'node-exporter-vm'
+        static_configs:
+          - targets: ['172.166.163.139:9100']
+        scrape_interval: 15s
+
+grafana:
+  service:
+    type: ClusterIP
