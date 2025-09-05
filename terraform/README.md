@@ -7,41 +7,41 @@ Terraform configuration for the FinServe DevSecOps. The infrastructure is modula
 ```mermaid
 graph TB
     subgraph "Resource Group"
-        A[rg-finserve-{env}]
+        A["rg-finserve-env"]
     end
     
     subgraph "Virtual Network"
-        B[vnet-finserve-{env}]
-        C[10.0.0.0/16]
+        B["vnet-finserve-env"]
+        C["10.0.0.0/16"]
         B --> C
     end
     
     subgraph "Subnets"
-        D[AKS Subnet<br/>10.0.1.0/24]
-        E[VM Subnet<br/>10.0.2.0/24]
+        D["AKS Subnet<br/>10.0.1.0/24"]
+        E["VM Subnet<br/>10.0.2.0/24"]
         B --> D
         B --> E
     end
     
     subgraph "AKS Cluster"
-        F[aks-finserve-{env}]
-        G[Node Pool<br/>Standard_D2s_v3]
+        F["aks-finserve-env"]
+        G["Node Pool<br/>Standard_D2s_v3"]
         D --> F
         F --> G
     end
     
     subgraph "Linux VM"
-        H[vm-finserve-{env}]
-        I[Standard_B1s]
-        J[SSH Access]
+        H["vm-finserve-env"]
+        I["Standard_B1s"]
+        J["SSH Access"]
         E --> H
         H --> I
         H --> J
     end
     
     subgraph "Security"
-        K[NSG - VM]
-        L[SSH Rule<br/>Port 22]
+        K["NSG - VM"]
+        L["SSH Rule<br/>Port 22"]
         E --> K
         K --> L
     end
